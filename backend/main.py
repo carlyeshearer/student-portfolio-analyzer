@@ -484,6 +484,65 @@ def portfolio_analysis():
         Holding.portfolio_id == 1
     ).all()
 
+    etf_tickers = [
+        holding.ticker
+        for holding in holdings
+        if holding.asset_type.lower() == "etf"
+    ]
+
+    etf_overlap_percentage = 0
+
+    if etf_tickers:
+        etf_holdings = (
+            db.query(ETFHolding)
+            .filter(ETFHolding.etf_ticker.in_(etf_tickers))
+            .all()
+        )
+
+        etf_values = {
+            holding.ticker: holding.value
+            for holding in holdings
+            if holding.ticker in etf_tickers
+        }
+
+        underlying_exposure = {}
+
+        for item in etf_holdings:
+            etf_value = etf_values.get(item.etf_ticker, 0)
+
+            exposure = etf_value * (item.weight / 100)
+
+            if item.holding_ticker not in underlying_exposure:
+                underlying_exposure[item.holding_ticker] = {
+                    "total": 0,
+                    "etfs": []
+                }
+
+            underlying_exposure[item.holding_ticker]["total"] += exposure
+            underlying_exposure[item.holding_ticker]["etfs"].append(
+                item.etf_ticker
+            )
+
+        overlapping_exposure = {
+            ticker: data
+            for ticker, data in underlying_exposure.items()
+            if len(set(data["etfs"])) > 1
+        }
+
+        overlapping_dollars = sum(
+            data["total"]
+            for data in overlapping_exposure.values()
+        )
+
+        total_etf_exposure = sum(underlying_exposure[ticker]["total"]
+                                for ticker in underlying_exposure)
+
+        etf_overlap_percentage = (
+            overlapping_dollars / total_etf_exposure * 100
+            if total_etf_exposure > 0
+            else 0
+        )
+
     db.close()
 
     total_value = sum(
@@ -590,6 +649,7 @@ def portfolio_analysis():
         "risk_indicators": risk_indicators,
         "interest_bearing_assets": interest_assets,
         "crypto_ml": crypto_ml,
+        "etf_overlap_percentage": round(etf_overlap_percentage, 2),
         "rate_ml": rate_ml,
         "holdings": [
             {
@@ -648,6 +708,8 @@ def portfolio_starter(request: StarterRequest):
     Do not tell the user exactly what to buy or sell,
     guarantee returns, or make predictions.
     Keep this educational and beginner-friendly.
+    
+    Do not use bullets or numbers in your response.
 
     Keep the response under 300 words.
     """
@@ -703,6 +765,8 @@ def starter_analyze(request: StarterRequest):
     guarantee returns, or make predictions.
     This is educational information, not personalized
     financial advice.
+
+    Do not use bullets or numbers in your response.
 
     Use beginner-friendly language.
 
